@@ -13,7 +13,11 @@ import logging
 import random
 import time
 from enum import Enum
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
+import json
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +29,27 @@ class RaftState(Enum):
     LEADER = "leader"
 
 
+@dataclass(frozen=True)
+class LogEntry:
+    index: int
+    term: int
+    payload: Dict[str, Any]
+
+
 class Raft:
     """Raft consensus algorithm implementation."""
     
     def __init__(self, node_id: str, other_nodes: list = None):
         self.node_id = node_id
         self.other_nodes = other_nodes or []  # List of (host, port) tuples
+        # Map peer key ("host:port") to address for convenience
+        self._peers: Dict[str, tuple[str, int]] = {f"{h}:{p}": (h, p) for (h, p) in self.other_nodes}
         
         # Persistent state (survives crashes)
         self.current_term: int = 0
         self.voted_for: Optional[str] = None  # None, or node_id of candidate voted for
-        self.log: List[Dict[str, Any]] = []  # Will be used in Phase 3
+        # Raft log (Phase 3): list of LogEntry. Indexing is 1-based.
+        self.log: List[LogEntry] = []
         
         # Volatile state (reset on restart)
         self.commit_index: int = 0  # Highest log entry known to be committed
@@ -52,18 +66,43 @@ class Raft:
         self.election_timeout: float = random.uniform(0.15, 0.30)  # 150-300ms
         self.last_heartbeat: float = time.time()
         
-        # Heartbeat interval (for leaders)
+        # Heartbeat/replication interval (for leaders)
         self.heartbeat_interval: float = 0.05  # 50ms
         
         # Election tracking
         self.votes_received: int = 0
         self.rpc_client_factory = None  # Will be set by Node
+
+        # Startup grace: delay elections/heartbeats for a short period
+        # so peers have time to bring up their RPC servers.
+        # Default disabled (0.0) to keep unit tests deterministic;
+        # Node can enable and mark readiness.
+        self.startup_grace_sec: float = 0.0
+        self.rpc_ready_at: float = time.time()
         
+        # Apply callback (state machine application for committed entries)
+        self.apply_callback = None  # type: Optional[callable]
+
+        # API address hint (set by Node) for redirects
+        self.api_host: Optional[str] = None
+        self.api_port: Optional[int] = None
+
+        # Persistence paths (configured via set_storage_dir)
+        self._storage_dir: Optional[Path] = None
+        self._meta_path: Optional[Path] = None
+        self._log_path: Optional[Path] = None
+
         logger.info(f"Raft node {node_id} initialized as {self.state.value} (term {self.current_term})")
 
     def tick(self) -> None:
         """Advance timers and handle elections/heartbeats."""
         current_time = time.time()
+
+        # If a startup grace period is configured, defer any election/heartbeat
+        # activity until our RPC server has been ready for at least that long.
+        if self.startup_grace_sec > 0.0:
+            if current_time - self.rpc_ready_at < self.startup_grace_sec:
+                return
         
         if self.state == RaftState.FOLLOWER:
             # Check if we should start an election
@@ -76,10 +115,22 @@ class Raft:
                 self._start_election()  # Start new election
                 
         elif self.state == RaftState.LEADER:
-            # Send heartbeats to followers
+            # Periodically send AppendEntries (acts as heartbeat and replication)
             if current_time - self.last_heartbeat > self.heartbeat_interval:
-                self._send_heartbeats()
+                for peer_id in list(self._peers.keys()):
+                    asyncio.create_task(self._replicate_to_peer(peer_id))
                 self.last_heartbeat = current_time
+
+    def set_startup_grace(self, seconds: float) -> None:
+        """Configure startup grace period (seconds)."""
+        try:
+            self.startup_grace_sec = float(seconds)
+        except Exception:
+            self.startup_grace_sec = 0.0
+
+    def mark_rpc_ready(self) -> None:
+        """Mark the moment when the RPC server is ready to accept calls."""
+        self.rpc_ready_at = time.time()
 
     def _start_election(self) -> None:
         """Start a new election by becoming a candidate."""
@@ -91,6 +142,7 @@ class Raft:
         self.voted_for = self.node_id  # Vote for ourselves
         self.votes_received = 1  # Count our own vote
         self.last_heartbeat = time.time()
+        self._persist_meta()
         
         # Reset election timeout
         self.election_timeout = random.uniform(0.15, 0.30)
@@ -119,8 +171,8 @@ class Raft:
             response = await client.request_vote(
                 candidate_id=self.node_id,
                 candidate_term=self.current_term,
-                last_log_index=len(self.log),
-                last_log_term=self.log[-1]["term"] if self.log else 0
+                last_log_index=self.last_log_index(),
+                last_log_term=self.last_log_term(),
             )
             
             await self._handle_request_vote_response(response, host, port)
@@ -143,6 +195,7 @@ class Raft:
             self.current_term = response_term
             self.state = RaftState.FOLLOWER
             self.voted_for = None
+            self._persist_meta()
             return
             
         # If we're still a candidate and got a vote
@@ -162,17 +215,22 @@ class Raft:
         """Transition from candidate to leader."""
         self.state = RaftState.LEADER
         self.last_heartbeat = time.time()
-        
+
         # Initialize leader state
+        last_idx = self.last_log_index() + 1
         for host, port in self.other_nodes:
-            node_id = f"{host}:{port}"  # Use host:port as node identifier
-            self.next_index[node_id] = len(self.log) + 1
-            self.match_index[node_id] = 0
-            
+            peer_id = f"{host}:{port}"  # Use host:port as node identifier
+            self.next_index[peer_id] = last_idx
+            self.match_index[peer_id] = 0
+
         logger.info(f"Node {self.node_id} is now LEADER in term {self.current_term}")
-        
+
         # Send initial heartbeats
         self._send_heartbeats()
+
+        # Kick off initial replication attempts (empty entries act as heartbeats)
+        for peer_id in list(self._peers.keys()):
+            asyncio.create_task(self._replicate_to_peer(peer_id))
 
     def _send_heartbeats(self) -> None:
         """Send heartbeats to all followers (placeholder for now)."""
@@ -191,6 +249,9 @@ class Raft:
             self.voted_for = None
             logger.info(f"Node {self.node_id} updated to term {candidate_term}, becoming follower")
         
+        # Persist possible term change above
+        self._persist_meta()
+        
         # Grant vote if:
         # 1. Candidate's term is at least as high as ours
         # 2. We haven't voted for anyone else this term
@@ -205,6 +266,7 @@ class Raft:
             self.voted_for = candidate_id
             self.last_heartbeat = time.time()  # Reset election timeout
             logger.info(f"Node {self.node_id} voted for {candidate_id} in term {candidate_term}")
+            self._persist_meta()
         else:
             logger.info(f"Node {self.node_id} denied vote to {candidate_id} in term {candidate_term}")
         
@@ -219,25 +281,105 @@ class Raft:
         # This will be properly implemented in Phase 3
         return True
 
-    def handle_append_entries(self, leader_id: str, term: int, prev_log_index: int,
-                            prev_log_term: int, entries: List[Dict[str, Any]], 
-                            leader_commit: int) -> Dict[str, Any]:
-        """Handle AppendEntries RPC from leader (placeholder for Phase 3)."""
-        logger.debug(f"Node {self.node_id} received AppendEntries from {leader_id} (term {term})")
-        
-        # If leader's term is higher, update our term and become follower
+    def entry_term(self, index: int) -> int:
+        if index <= 0:
+            return 0
+        if index <= len(self.log):
+            return self.log[index - 1].term
+        # Index beyond log end
+        return -1
+
+    def truncate_suffix(self, from_index: int) -> None:
+        """Delete log entries from from_index to end (inclusive)."""
+        if from_index <= 0:
+            self.log.clear()
+        elif from_index <= len(self.log):
+            del self.log[from_index - 1 :]
+
+    def handle_append_entries(
+        self,
+        leader_id: str,
+        term: int,
+        prev_log_index: int,
+        prev_log_term: int,
+        entries: List[Dict[str, Any]],
+        leader_commit: int,
+    ) -> Dict[str, Any]:
+        """Handle AppendEntries RPC from leader (Phase 3 consistency checks).
+
+        Returns dict with keys: term, success.
+        """
+        logger.debug(
+            f"Node {self.node_id} received AppendEntries from {leader_id} (term {term})"
+        )
+
+        # Reply false if term < currentTerm
+        if term < self.current_term:
+            return {"term": self.current_term, "success": False}
+
+        # If term is newer, update and become follower
         if term > self.current_term:
             self.current_term = term
             self.state = RaftState.FOLLOWER
             self.voted_for = None
-        
-        # Reset election timeout
+            self._persist_meta()
+
+        # Reset election timeout on any AppendEntries from current leader
         self.last_heartbeat = time.time()
-        
-        return {
-            "term": self.current_term,
-            "success": True  # Placeholder - will be implemented in Phase 3
-        }
+
+        # Consistency check: if log doesn't contain an entry at prev_log_index
+        # whose term matches prev_log_term, reply false
+        if prev_log_index > self.last_log_index():
+            return {"term": self.current_term, "success": False}
+        if prev_log_index > 0 and self.entry_term(prev_log_index) != prev_log_term:
+            return {"term": self.current_term, "success": False}
+
+        # If existing entry conflicts with a new one (same index but different term),
+        # delete the existing entry and all that follow it
+        # Then append any new entries not already in the log
+        # prev_log_index is the index of the entry immediately preceding new ones
+        new_index = prev_log_index
+        changed = False
+        for i, ent in enumerate(entries):
+            new_index = prev_log_index + 1 + i
+            ent_term = int(ent.get("term", 0))
+            payload = ent.get("payload", {})
+            if new_index <= self.last_log_index():
+                if self.entry_term(new_index) != ent_term:
+                    # conflict: delete from this index onward
+                    self.truncate_suffix(new_index)
+                    changed = True
+                    # append this and the rest
+                    self.log.append(LogEntry(index=new_index, term=ent_term, payload=payload))
+                    changed = True
+                    # append remaining entries
+                    for j in range(i + 1, len(entries)):
+                        idx = prev_log_index + 1 + j
+                        e2 = entries[j]
+                        self.log.append(
+                            LogEntry(index=idx, term=int(e2.get("term", 0)), payload=e2.get("payload", {}))
+                        )
+                        changed = True
+                    break
+                else:
+                    # already present with same term; skip
+                    continue
+            else:
+                # append new entry beyond current end
+                self.log.append(LogEntry(index=new_index, term=ent_term, payload=payload))
+                changed = True
+
+        if changed:
+            self._persist_log()
+
+        # Update commit index and apply newly committed entries
+        if leader_commit > self.commit_index:
+            new_commit = min(leader_commit, self.last_log_index())
+            if new_commit > self.commit_index:
+                self.commit_index = new_commit
+                self._apply_committed()
+
+        return {"term": self.current_term, "success": True}
 
     def get_state_info(self) -> Dict[str, Any]:
         """Get current state information for debugging."""
@@ -253,3 +395,192 @@ class Raft:
             "time_since_last_heartbeat": time.time() - self.last_heartbeat
         }
 
+    # -------- Phase 3: leader append API (test hook) --------
+    def last_log_index(self) -> int:
+        return len(self.log)
+
+    def last_log_term(self) -> int:
+        return self.log[-1].term if self.log else 0
+
+    def append_local(self, payload: Dict[str, Any]) -> LogEntry:
+        """Leader-only: append a new entry to the Raft log.
+
+        For tests in Phase 3. Does not replicate or commit; replication and
+        commit will be handled by AppendEntries logic.
+        """
+        if self.state != RaftState.LEADER:
+            raise RuntimeError("append_local requires leader state")
+        idx = self.last_log_index() + 1
+        entry = LogEntry(index=idx, term=self.current_term, payload=payload)
+        self.log.append(entry)
+        self._persist_log()
+        # Trigger replication to all peers
+        if self.state == RaftState.LEADER:
+            for peer_id in list(self._peers.keys()):
+                asyncio.create_task(self._replicate_to_peer(peer_id))
+        # Try to advance commit (single-node majority shortcut)
+        self._maybe_advance_commit()
+        return entry
+
+    # -------- Leader-side replication (Phase 3) --------
+    async def _replicate_to_peer(self, peer_id: str) -> None:
+        """Send AppendEntries to a follower based on its nextIndex.
+
+        Retries are handled by subsequent calls (e.g., on timer or next append).
+        """
+        if not self.rpc_client_factory:
+            return
+        addr = self._peers.get(peer_id)
+        if not addr:
+            return
+        host, port = addr
+        rpc_port = port + 1000
+        client = self.rpc_client_factory(host, rpc_port, self.node_id)
+
+        # Determine prev and entries slice
+        next_idx = max(1, self.next_index.get(peer_id, self.last_log_index() + 1))
+        prev_idx = next_idx - 1
+        prev_term = self.entry_term(prev_idx)
+        # Entries from next_idx..end
+        entries = [
+            {"term": e.term, "payload": e.payload}
+            for e in self.log[next_idx - 1 :]
+        ]
+
+        try:
+            resp = await client.append_entries(
+                leader_id=self.node_id,
+                term=self.current_term,
+                prev_log_index=prev_idx,
+                prev_log_term=prev_term,
+                entries=entries,
+                leader_commit=self.commit_index,
+                leader_api_host=self.api_host,
+                leader_api_port=self.api_port,
+            )
+        except Exception:
+            return
+
+        success = bool(resp.get("success"))
+        resp_term = int(resp.get("term", 0))
+        if resp_term > self.current_term:
+            # Step down
+            self.current_term = resp_term
+            self.state = RaftState.FOLLOWER
+            self.voted_for = None
+            return
+
+        if success:
+            # If successful: update nextIndex and matchIndex for follower
+            match = self.last_log_index()
+            self.match_index[peer_id] = match
+            self.next_index[peer_id] = match + 1
+            self._maybe_advance_commit()
+        else:
+            # If AppendEntries fails because of log inconsistency: decrement nextIndex and retry later
+            self.next_index[peer_id] = max(1, next_idx - 1)
+
+    def _maybe_advance_commit(self) -> None:
+        """Advance commitIndex if a majority have replicated an index in current term."""
+        if self.state != RaftState.LEADER:
+            return
+        # Count leader as replicated on its own last_log_index
+        total = len(self.other_nodes) + 1
+        majority = (total // 2) + 1
+        # Try to advance from current commit+1 up to last_log_index
+        for idx in range(self.last_log_index(), self.commit_index, -1):
+            # Only commit entries from current term (Raft safety)
+            if self.entry_term(idx) != self.current_term:
+                continue
+            replicated = 1  # leader itself
+            for peer_id, m in self.match_index.items():
+                if m >= idx:
+                    replicated += 1
+            if replicated >= majority:
+                self.commit_index = idx
+                self._apply_committed()
+                break
+
+    def _apply_committed(self) -> None:
+        """Apply entries up to commitIndex to the state machine.
+
+        Calls apply_callback(payload) if configured.
+        """
+        while self.last_applied < self.commit_index:
+            self.last_applied += 1
+            payload = self.log[self.last_applied - 1].payload
+            cb = getattr(self, "apply_callback", None)
+            if cb:
+                try:
+                    cb(payload)
+                except Exception:
+                    # Ignore apply errors in core Raft for now
+                    pass
+
+    # Public: set the state machine apply callback
+    def set_apply_callback(self, cb) -> None:
+        self.apply_callback = cb
+
+    # -------- Persistence: meta (term/vote) + log --------
+    def set_storage_dir(self, path: str | os.PathLike) -> None:
+        d = Path(path)
+        d.mkdir(parents=True, exist_ok=True)
+        self._storage_dir = d
+        self._meta_path = d / "meta.json"
+        self._log_path = d / "log.jsonl"
+        self._load_state()
+
+    def _persist_meta(self) -> None:
+        if not self._meta_path:
+            return
+        data = {"current_term": self.current_term, "voted_for": self.voted_for}
+        tmp = str(self._meta_path) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp, self._meta_path)
+
+    def _persist_log(self) -> None:
+        if not self._log_path:
+            return
+        tmp = str(self._log_path) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for e in self.log:
+                f.write(json.dumps({"index": e.index, "term": e.term, "payload": e.payload}) + "\n")
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp, self._log_path)
+
+    def _load_state(self) -> None:
+        # Load meta
+        try:
+            if self._meta_path and self._meta_path.exists():
+                with open(self._meta_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.current_term = int(data.get("current_term", 0))
+                    self.voted_for = data.get("voted_for")
+        except Exception:
+            pass
+        # Load log
+        loaded: List[LogEntry] = []
+        try:
+            if self._log_path and self._log_path.exists():
+                with open(self._log_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            obj = json.loads(line)
+                            loaded.append(LogEntry(index=int(obj.get("index", 0)), term=int(obj.get("term", 0)), payload=obj.get("payload") or {}))
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+        if loaded:
+            loaded.sort(key=lambda e: e.index)
+            self.log = loaded
