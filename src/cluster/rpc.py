@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from typing import Dict, Any, Optional
+from cluster.raft import RaftState
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +18,13 @@ logger = logging.getLogger(__name__)
 class RpcServer:
     """RPC server for receiving messages from other nodes."""
     
-    def __init__(self, host: str, port: int, node_id: str, raft_instance=None):
+    def __init__(self, host: str, port: int, node_id: str, raft_instance=None, node=None):
         self.host = host
         self.port = port
         self.node_id = node_id
         self.raft = raft_instance  # Will be set by Node
         self._server: Optional[asyncio.AbstractServer] = None
+        self.node = node
 
     async def start(self) -> None:
         """Start the RPC server."""
@@ -100,14 +102,83 @@ class RpcServer:
             # Handle AppendEntries RPC for log replication (Phase 3)
             payload = message.get("payload", {})
             leader_id = payload.get("leader_id")
-            term = payload.get("term", 0)
-            
-            return {
-                "method": "append_entries_response", 
-                "term": term,
-                "success": True,  # Placeholder for Phase 3
-                "from": self.node_id
-            }
+            term = int(payload.get("term", 0))
+            prev_log_index = int(payload.get("prev_log_index", 0))
+            prev_log_term = int(payload.get("prev_log_term", 0))
+            entries = payload.get("entries", []) or []
+            leader_commit = int(payload.get("leader_commit", 0))
+            # Capture leader API address hint for redirects
+            leader_api_host = payload.get("leader_api_host")
+            leader_api_port = payload.get("leader_api_port")
+            if self.node and leader_api_host and leader_api_port:
+                try:
+                    self.node._leader_hint = (str(leader_api_host), int(leader_api_port))
+                except Exception:
+                    pass
+
+            if self.raft:
+                resp = self.raft.handle_append_entries(
+                    leader_id,
+                    term,
+                    prev_log_index,
+                    prev_log_term,
+                    entries,
+                    leader_commit,
+                )
+                return {
+                    "method": "append_entries_response",
+                    "term": resp.get("term", term),
+                    "success": bool(resp.get("success", False)),
+                    "from": self.node_id,
+                }
+            else:
+                return {
+                    "method": "append_entries_response",
+                    "term": term,
+                    "success": True,
+                    "from": self.node_id,
+                }
+        elif method == "leader_append":
+            # Append a new payload on leader only (test/admin hook)
+            payload = message.get("payload", {})
+            topic = payload.get("topic")
+            msg_id = payload.get("id")
+            if self.raft and getattr(self.raft.state, "value", "") == RaftState.LEADER.value:
+                if self.node:
+                    try:
+                        if getattr(self.node, "_dedup", None) is not None and topic and msg_id:
+                            if self.node._dedup.seen(topic, msg_id):
+                                return {
+                                    "method": "leader_append_response",
+                                    "status": "duplicate",
+                                    "from": self.node_id,
+                                    "id": msg_id,
+                                }
+                    except Exception:
+                        pass
+                    payload = self.node._annotate_payload(payload)
+                try:
+                    entry = self.raft.append_local(payload)
+                    deadline = asyncio.get_event_loop().time() + 2.0
+                    while asyncio.get_event_loop().time() < deadline:
+                        if self.raft.commit_index >= entry.index:
+                            return {
+                                "method": "leader_append_response",
+                                "status": "ok",
+                                "from": self.node_id,
+                                "id": payload.get("id"),
+                            }
+                        await asyncio.sleep(0.01)
+                    return {
+                        "method": "leader_append_response",
+                        "status": "timeout",
+                        "from": self.node_id,
+                        "id": payload.get("id"),
+                    }
+                except Exception as e:
+                    return {"method": "leader_append_response", "status": "error", "error": str(e)}
+            else:
+                return {"method": "leader_append_response", "status": "not_leader", "from": self.node_id}
         else:
             return {
                 "method": "error",
@@ -183,7 +254,9 @@ class RpcClient:
         return await self.call("request_vote", payload)
 
     async def append_entries(self, leader_id: str, term: int, prev_log_index: int,
-                           prev_log_term: int, entries: list, leader_commit: int) -> Dict[str, Any]:
+                           prev_log_term: int, entries: list, leader_commit: int,
+                           leader_api_host: Optional[str] = None,
+                           leader_api_port: Optional[int] = None) -> Dict[str, Any]:
         """Send AppendEntries RPC to another node (Phase 3)."""
         payload = {
             "leader_id": leader_id,
@@ -191,7 +264,13 @@ class RpcClient:
             "prev_log_index": prev_log_index,
             "prev_log_term": prev_log_term,
             "entries": entries,
-            "leader_commit": leader_commit
+            "leader_commit": leader_commit,
         }
+        if leader_api_host is not None and leader_api_port is not None:
+            payload["leader_api_host"] = leader_api_host
+            payload["leader_api_port"] = leader_api_port
         return await self.call("append_entries", payload)
 
+    async def leader_append(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Ask the node (if leader) to append a new payload to the Raft log."""
+        return await self.call("leader_append", payload)
