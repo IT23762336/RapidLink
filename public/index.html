@@ -5,29 +5,1175 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RapidLink Console</title>
   <style>
+    :root {
+      --bg: #08131d;
+      --bg-soft: #102538;
+      --panel: rgba(8, 22, 35, 0.86);
+      --panel-2: rgba(10, 28, 44, 0.94);
+      --line: rgba(173, 216, 230, 0.16);
+      --text: #ecf7ff;
+      --muted: #97b4c6;
+      --accent: #5eead4;
+      --accent-2: #7dd3fc;
+      --gold: #ffbf69;
+      --success: #86efac;
+      --danger: #ff7b7b;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+      font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
     body {
       margin: 0;
-      font-family: "Trebuchet MS", sans-serif;
-      background: #0b1722;
-      color: #eaf7ff;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(94, 234, 212, 0.16), transparent 22%),
+        radial-gradient(circle at bottom right, rgba(255, 191, 105, 0.12), transparent 22%),
+        linear-gradient(135deg, #06111b, #0b1e2f 55%, #102538);
+      overflow: hidden;
     }
-    main {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 32px;
-    }
-    .panel {
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 18px;
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.95fr) minmax(380px, 1.2fr);
+      gap: 20px;
+      height: 100vh;
       padding: 20px;
-      background: rgba(7, 19, 31, 0.9);
+    }
+
+    .panel {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+    }
+
+    .chat-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hero {
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(140deg, rgba(94, 234, 212, 0.15), rgba(125, 211, 252, 0.08)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.45rem 0.8rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      font-size: 0.76rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .tag strong {
+      color: var(--text);
+    }
+
+    h1, h2 {
+      margin: 14px 0 8px;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+
+    h1 { font-size: clamp(1.9rem, 2.3vw, 2.6rem); }
+    h2 { font-size: clamp(1.45rem, 1.8vw, 2rem); }
+
+    .subtext,
+    .section-copy,
+    .node-meta,
+    .message-meta,
+    .action-status,
+    .status-text {
+      color: var(--muted);
+    }
+
+    .subtext,
+    .section-copy {
+      margin: 0;
+      line-height: 1.55;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(3, 11, 18, 0.7);
+      color: var(--text);
+      padding: 14px 16px;
+      font-size: 0.98rem;
+      outline: none;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    }
+
+    input::placeholder { color: #7190a6; }
+
+    input:focus {
+      border-color: rgba(94, 234, 212, 0.55);
+      box-shadow: 0 0 0 4px rgba(94, 234, 212, 0.12);
+      transform: translateY(-1px);
+    }
+
+    .status-pill,
+    .leader-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0.78rem 1rem;
+      margin-top: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .conversation-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .conversation-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.75rem 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .conversation-pill strong {
+      color: var(--text);
+    }
+
+    .identity-switcher {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .identity-btn {
+      padding: 0.72rem 1rem;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .identity-btn.active {
+      color: #051019;
+      background: linear-gradient(135deg, var(--gold), var(--accent));
+      box-shadow: 0 12px 20px rgba(255, 191, 105, 0.16);
+    }
+
+    .status-dot,
+    .node-status-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+    }
+
+    .status-dot {
+      background: var(--gold);
+      box-shadow: 0 0 0 4px rgba(255, 191, 105, 0.12);
+    }
+
+    .status-dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.14);
+    }
+
+    .history {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 22px;
+      overflow-y: auto;
+      background: rgba(2, 10, 16, 0.4);
+    }
+
+    .empty-state {
+      display: grid;
+      place-items: center;
+      min-height: 100%;
+      padding: 24px;
+      text-align: center;
+      border: 1px dashed rgba(151, 180, 198, 0.24);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .empty-state strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 1.1rem;
+    }
+
+    .empty-state span {
+      color: var(--muted);
+      max-width: 24rem;
+      line-height: 1.55;
+    }
+
+    .message {
+      position: relative;
+      margin-bottom: 14px;
+      padding: 16px 18px 16px 22px;
+      border: 1px solid rgba(125, 211, 252, 0.12);
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.16);
+      animation: slide-in 0.2s ease;
+    }
+
+    .message.mine {
+      margin-left: auto;
+      padding-left: 18px;
+      padding-right: 22px;
+      border-color: rgba(94, 234, 212, 0.22);
+      background: linear-gradient(135deg, rgba(94, 234, 212, 0.16), rgba(125, 211, 252, 0.08));
+    }
+
+    .message::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 4px;
+      border-radius: 20px 0 0 20px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    }
+
+    .message.mine::before {
+      left: auto;
+      right: 0;
+      border-radius: 0 20px 20px 0;
+      background: linear-gradient(180deg, var(--gold), var(--accent));
+    }
+
+    .message-meta {
+      margin-bottom: 6px;
+      font-size: 0.78rem;
+    }
+
+    .message-text {
+      line-height: 1.6;
+      word-break: break-word;
+    }
+
+    .composer {
+      display: flex;
+      gap: 12px;
+      padding: 18px 22px 22px;
+      border-top: 1px solid var(--line);
+      background: rgba(2, 10, 16, 0.64);
+    }
+
+    .composer input { flex: 1 1 auto; }
+
+    .composer-label {
+      min-width: 140px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.9rem 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .composer-label strong {
+      color: var(--text);
+      display: block;
+    }
+
+    .btn {
+      border: 1px solid transparent;
+      border-radius: 16px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .btn:hover:not(:disabled) { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+    .btn-send,
+    .btn-primary {
+      color: #051019;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 16px 26px rgba(94, 234, 212, 0.16);
+    }
+
+    .btn-send { padding: 14px 18px; }
+    .btn-primary { padding: 14px 18px; }
+
+    .btn-stop {
+      padding: 10px 14px;
+      color: #fff3f3;
+      background: rgba(255, 123, 123, 0.18);
+      border-color: rgba(255, 123, 123, 0.28);
+    }
+
+    .btn-recycle {
+      padding: 10px 14px;
+      color: #051019;
+      background: linear-gradient(135deg, #86efac, #5eead4);
+      box-shadow: 0 12px 18px rgba(94, 234, 212, 0.14);
+    }
+
+    .ops-panel {
+      display: grid;
+      grid-template-rows: min-content minmax(0, 1fr) min-content;
+      gap: 18px;
+      padding: 22px;
+    }
+
+    .cluster-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .leader-pill {
+      margin-top: 0;
+      white-space: nowrap;
+    }
+
+    .leader-pill strong {
+      color: var(--text);
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .leader-pill span {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .terminal-wrap,
+    .controls-panel {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--panel-2);
+    }
+
+    .terminal-wrap {
+      min-height: 0;
+      padding: 16px;
+    }
+
+    .terminals {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      min-height: 100%;
+    }
+
+    .terminal {
+      min-height: 240px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(94, 234, 212, 0.12);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(20, 32, 45, 0.96), rgba(4, 10, 17, 0.98));
+    }
+
+    .terminal-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .terminal-title strong { font-size: 0.92rem; }
+
+    .terminal-title span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .terminal-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px 14px 16px;
+      font-family: Consolas, "SFMono-Regular", Monaco, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #dbe8f2;
+    }
+
+    .log-line {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 0.18rem;
+    }
+
+    .controls-panel {
+      display: grid;
+      gap: 16px;
+      padding: 20px;
+    }
+
+    .node-actions {
+      display: grid;
+      gap: 12px;
+    }
+
+    .node-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .node-info {
+      display: grid;
+      gap: 6px;
+    }
+
+    .node-label {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .node-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.88rem;
+    }
+
+    .node-status-dot {
+      background: #8fa7ba;
+      box-shadow: 0 0 0 4px rgba(143, 167, 186, 0.1);
+    }
+
+    .node-status-dot.running {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.12);
+    }
+
+    .node-status-dot.stopped {
+      background: var(--danger);
+      box-shadow: 0 0 0 4px rgba(255, 123, 123, 0.12);
+    }
+
+    .node-status-text.running { color: var(--success); }
+    .node-status-text.stopped { color: #ffb3b3; }
+    .node-status-text.unknown { color: var(--muted); }
+
+    .node-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .action-status.ok { color: var(--success); }
+    .action-status.error { color: #ffb3b3; }
+
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 1080px) {
+      body { overflow: auto; }
+      .layout {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+      .history { min-height: 360px; }
+    }
+
+    @media (max-width: 720px) {
+      .layout { padding: 14px; gap: 14px; }
+      .controls,
+      .cluster-head,
+      .node-card,
+      .composer { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; }
+      .node-buttons .btn { flex: 1 1 0; }
+      .leader-pill { width: 100%; justify-content: space-between; }
+      .conversation-line { align-items: stretch; }
+      .identity-switcher { width: 100%; }
     }
   </style>
 </head>
 <body>
-  <main>
-    <h1>RapidLink Console</h1>
-    <div class="panel">Cluster status and conversation history will appear here.</div>
-  </main>
+  <div class="layout">
+    <section class="panel chat-panel">
+      <header class="hero">
+        <div class="tag"><strong>RapidLink</strong> Signal Mesh</div>
+        <h1>RapidLink</h1>
+        <p class="subtext">A sharper console for direct messaging, live sync tracking, and cluster-aware delivery.</p>
+        <div class="controls">
+          <div class="field">
+            <label for="participant-a">Participant One</label>
+            <input id="participant-a" type="text" placeholder="Luna" />
+          </div>
+          <div class="field">
+            <label for="participant-b">Participant Two</label>
+            <input id="participant-b" type="text" placeholder="Orion" />
+          </div>
+        </div>
+        <div class="conversation-line">
+          <div id="conversation-pill" class="conversation-pill"><strong>Conversation</strong> Waiting for two names</div>
+          <div class="identity-switcher">
+            <button id="identity-a" type="button" class="btn identity-btn">Chat as Person 1</button>
+            <button id="identity-b" type="button" class="btn identity-btn">Chat as Person 2</button>
+          </div>
+        </div>
+        <div class="status-pill">
+          <div id="status-dot" class="status-dot"></div>
+          <span id="status-text" class="status-text">Relay offline</span>
+        </div>
+      </header>
+
+      <div id="messages" class="history"></div>
+
+      <footer class="composer">
+        <div id="composer-label" class="composer-label"><strong>Speaker</strong>Select a participant</div>
+        <input id="message" type="text" placeholder="Write a message to the relay..." />
+        <button id="send" type="button" class="btn btn-send">Transmit</button>
+      </footer>
+    </section>
+
+    <section class="panel ops-panel">
+      <div class="cluster-head">
+        <div>
+          <div class="tag"><strong>Control Grid</strong> Cluster Telemetry</div>
+          <h2>Network Command Deck</h2>
+          <p class="section-copy">Track leadership, stream live node logs, and operate each relay without leaving the RapidLink console.</p>
+        </div>
+        <div class="leader-pill">
+          <strong>Leader Signal</strong>
+          <span id="leader-text">Awaiting election</span>
+        </div>
+      </div>
+
+      <div class="terminal-wrap">
+        <div id="terminals" class="terminals"></div>
+      </div>
+
+      <div class="controls-panel">
+        <div>
+          <div class="tag"><strong>Mesh Controls</strong> Live Operations</div>
+          <p class="section-copy" style="margin-top:10px;">The backend endpoints stay the same, but the visible UI now feels like a distinct RapidLink product.</p>
+        </div>
+        <button type="button" class="btn btn-primary" data-action="start-cluster" title="Start all nodes">Launch RapidLink Mesh</button>
+        <div id="action-status" class="action-status"></div>
+        <div id="node-actions" class="node-actions"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const participantAInput = document.getElementById('participant-a');
+    const participantBInput = document.getElementById('participant-b');
+    const conversationPill = document.getElementById('conversation-pill');
+    const identityABtn = document.getElementById('identity-a');
+    const identityBBtn = document.getElementById('identity-b');
+    const composerLabel = document.getElementById('composer-label');
+    const messagesEl = document.getElementById('messages');
+    const messageInput = document.getElementById('message');
+    const sendBtn = document.getElementById('send');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const terminalsEl = document.getElementById('terminals');
+    const nodeActionsEl = document.getElementById('node-actions');
+    const leaderText = document.getElementById('leader-text');
+    const actionStatusEl = document.getElementById('action-status');
+    const startClusterBtn = document.querySelector('[data-action="start-cluster"]');
+
+    const nodeProfiles = {
+      n1: { label: 'Atlas Relay' },
+      n2: { label: 'Beacon Relay' },
+      n3: { label: 'Comet Relay' },
+    };
+
+    let ws = null;
+    let reconnectTimer = null;
+    let statusDots = {};
+    let statusTexts = {};
+    let knownNodeIds = [];
+    let activeIdentity = null;
+
+    function getNodeLabel(nodeId) {
+      const profile = nodeProfiles[nodeId];
+      return profile && profile.label ? profile.label : `Relay ${String(nodeId).toUpperCase()}`;
+    }
+
+    function getNodeMeta(node) {
+      const bits = [String(node.id)];
+      if (node.host) bits.push(String(node.host));
+      if (node.port != null) bits.push(`:${node.port}`);
+      return bits.join(' ');
+    }
+
+    function cleanParticipantName(value) {
+      return value.trim().replace(/\s+/g, ' ');
+    }
+
+    function normalizeParticipantKey(value) {
+      return cleanParticipantName(value).toLowerCase();
+    }
+
+    function getParticipants() {
+      const participantA = cleanParticipantName(participantAInput.value);
+      const participantB = cleanParticipantName(participantBInput.value);
+      return { participantA, participantB };
+    }
+
+    function buildConversationId() {
+      const { participantA, participantB } = getParticipants();
+      const left = normalizeParticipantKey(participantA);
+      const right = normalizeParticipantKey(participantB);
+      if (!left || !right || left === right) return null;
+      return `dm:${[left, right].sort().join(':')}`;
+    }
+
+    function getActiveSpeakerName() {
+      const { participantA, participantB } = getParticipants();
+      if (activeIdentity === 'a') return participantA;
+      if (activeIdentity === 'b') return participantB;
+      return '';
+    }
+
+    function setActiveIdentity(identity) {
+      activeIdentity = identity;
+      identityABtn.classList.toggle('active', identity === 'a');
+      identityBBtn.classList.toggle('active', identity === 'b');
+
+      const speaker = getActiveSpeakerName();
+      if (speaker) {
+        composerLabel.innerHTML = `<strong>Speaking as</strong>${speaker}`;
+      } else {
+        composerLabel.innerHTML = '<strong>Speaker</strong>Select a participant';
+      }
+    }
+
+    function refreshConversationState() {
+      const { participantA, participantB } = getParticipants();
+      const convoId = buildConversationId();
+
+      identityABtn.textContent = participantA || 'Chat as Person 1';
+      identityBBtn.textContent = participantB || 'Chat as Person 2';
+
+      if (!participantA || !participantB) {
+        conversationPill.innerHTML = '<strong>Conversation</strong> Waiting for two names';
+      } else if (normalizeParticipantKey(participantA) === normalizeParticipantKey(participantB)) {
+        conversationPill.innerHTML = '<strong>Conversation</strong> Choose two different people';
+      } else {
+        conversationPill.innerHTML = `<strong>Conversation</strong> ${participantA} and ${participantB}`;
+      }
+
+      const activeName = getActiveSpeakerName();
+      if (!activeName) {
+        if (participantA) {
+          setActiveIdentity('a');
+        } else if (participantB) {
+          setActiveIdentity('b');
+        } else {
+          setActiveIdentity(null);
+        }
+      } else {
+        setActiveIdentity(activeIdentity);
+      }
+
+      const ready = Boolean(convoId && getActiveSpeakerName());
+      sendBtn.disabled = !ready;
+      messageInput.disabled = !ready;
+
+      return convoId;
+    }
+
+    function showEmptyState(title, detail) {
+      messagesEl.innerHTML = '';
+      const state = document.createElement('div');
+      state.className = 'empty-state';
+      state.innerHTML = `<div><strong>${title}</strong><span>${detail}</span></div>`;
+      messagesEl.appendChild(state);
+    }
+
+    function isOwnMessage(entry) {
+      const sender = normalizeParticipantKey(entry.sender || '');
+      const current = normalizeParticipantKey(getActiveSpeakerName());
+      return Boolean(sender && current && sender === current);
+    }
+
+    function appendMessage(entry) {
+      if (messagesEl.querySelector('.empty-state')) {
+        messagesEl.innerHTML = '';
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message';
+      if (isOwnMessage(entry)) {
+        wrapper.classList.add('mine');
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'message-meta';
+      const ts = entry.timestamp ? new Date(entry.timestamp * 1000).toLocaleTimeString() : '';
+      const author = entry.sender || 'Unknown sender';
+      meta.textContent = `${author} | ${ts} | ${entry.message_id}`;
+
+      const text = document.createElement('div');
+      text.className = 'message-text';
+      text.textContent = entry.body_text || entry.text;
+
+      wrapper.appendChild(meta);
+      wrapper.appendChild(text);
+      messagesEl.appendChild(wrapper);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function normalizeRunning(value) {
+      if (value === true || value === 'true' || value === 1 || value === '1') return true;
+      if (value === false || value === 'false' || value === 0 || value === '0') return false;
+      return null;
+    }
+
+    function setNodeStatus(nodeId, running) {
+      const dot = statusDots[nodeId];
+      const text = statusTexts[nodeId];
+      if (!dot || !text) return;
+
+      const normalized = normalizeRunning(running);
+      const state = normalized === true ? 'running' : normalized === false ? 'stopped' : 'unknown';
+      dot.className = `node-status-dot ${state}`;
+      text.className = `node-status-text ${state}`;
+      text.textContent = state === 'running' ? 'Online' : state === 'stopped' ? 'Offline' : 'Unknown';
+    }
+
+    function renderNodeCards(nodes) {
+      nodeActionsEl.innerHTML = '';
+      statusDots = {};
+      statusTexts = {};
+      knownNodeIds = [];
+
+      nodes.forEach((item) => {
+        const node = typeof item === 'string' ? { id: item } : (item || {});
+        const nodeId = node.id != null ? String(node.id) : null;
+        if (!nodeId) return;
+
+        knownNodeIds.push(nodeId);
+
+        const card = document.createElement('div');
+        card.className = 'node-card';
+
+        const info = document.createElement('div');
+        info.className = 'node-info';
+        info.innerHTML = `
+          <div class="node-label">${getNodeLabel(nodeId)}</div>
+          <div class="node-meta">${getNodeMeta(node)}</div>
+          <div class="node-status">
+            <span class="node-status-dot unknown"></span>
+            <span class="node-status-text unknown">Unknown</span>
+          </div>
+        `;
+
+        const dot = info.querySelector('.node-status-dot');
+        const text = info.querySelector('.node-status-text');
+        statusDots[nodeId] = dot;
+        statusTexts[nodeId] = text;
+
+        const buttons = document.createElement('div');
+        buttons.className = 'node-buttons';
+        buttons.innerHTML = `
+          <button type="button" class="btn btn-stop" data-action="kill" data-node="${nodeId}" title="Stop ${nodeId}">Stop</button>
+          <button type="button" class="btn btn-recycle" data-action="restart" data-node="${nodeId}" title="Restart ${nodeId}">Recycle</button>
+        `;
+
+        card.appendChild(info);
+        card.appendChild(buttons);
+        nodeActionsEl.appendChild(card);
+
+        if (Object.prototype.hasOwnProperty.call(node, 'running')) {
+          setNodeStatus(nodeId, node.running);
+        }
+      });
+    }
+
+    function setActionStatus(message, ok = true) {
+      actionStatusEl.textContent = message || '';
+      actionStatusEl.classList.toggle('ok', !!message && ok);
+      actionStatusEl.classList.toggle('error', !!message && !ok);
+      if (actionStatusEl._timer) clearTimeout(actionStatusEl._timer);
+      if (message) {
+        actionStatusEl._timer = setTimeout(() => {
+          actionStatusEl.textContent = '';
+          actionStatusEl.classList.remove('ok', 'error');
+        }, 5000);
+      }
+    }
+
+    async function runClusterAction(button, url, messageBuilder) {
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = `${original}...`;
+      let ok = true;
+      let message = '';
+
+      try {
+        const resp = await fetch(url, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || 'Request failed');
+        message = messageBuilder ? messageBuilder(data) : 'Done';
+      } catch (err) {
+        ok = false;
+        message = err instanceof Error ? err.message : 'Action failed';
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+        if (message) setActionStatus(message, ok);
+        await refreshNodeStatuses();
+      }
+    }
+
+    async function loadHistory(convo) {
+      try {
+        const resp = await fetch(`/dm/${encodeURIComponent(convo)}/history?count=50`);
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        messagesEl.innerHTML = '';
+        if (Array.isArray(data) && data.length) {
+          data.forEach((msg) => appendMessage(msg));
+        } else {
+          showEmptyState('No messages yet', 'This two-person conversation is ready, but nobody has sent the first message yet.');
+        }
+      } catch (err) {
+        console.error('history error', err);
+        showEmptyState('Conversation unavailable', 'The two-person thread could not be loaded right now. Check the cluster and try again.');
+      }
+    }
+
+    function setStatus(connected) {
+      if (connected) {
+        statusDot.classList.add('connected');
+        statusText.textContent = 'Relay online';
+      } else {
+        statusDot.classList.remove('connected');
+        statusText.textContent = 'Relay offline';
+      }
+    }
+
+    function disconnectConversation() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
+      setStatus(false);
+    }
+
+    function connectWebSocket(convo) {
+      if (ws) ws.close();
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${protocol}://${location.host}/ws/${encodeURIComponent(convo)}`);
+      ws.onopen = () => setStatus(true);
+      ws.onclose = () => {
+        setStatus(false);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => connectWebSocket(convo), 3000);
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'message') appendMessage(data.payload);
+        } catch (err) {
+          console.error('ws message parse error', err);
+        }
+      };
+    }
+
+    async function sendMessage() {
+      const convo = buildConversationId();
+      const text = messageInput.value.trim();
+      if (!convo || !text) return;
+
+      const sender = getActiveSpeakerName();
+      if (!sender) return;
+      try {
+        const resp = await fetch(`/dm/${encodeURIComponent(convo)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, sender })
+        });
+        if (!resp.ok) {
+          let detail = 'Send failed';
+          try {
+            const data = await resp.json();
+            detail = data.detail || detail;
+          } catch (_) {
+            detail = await resp.text() || detail;
+          }
+          throw new Error(detail);
+        }
+        await resp.json();
+        messageInput.value = '';
+      } catch (err) {
+        console.error('send error', err);
+        const detail = err instanceof Error ? err.message : 'Send failed';
+        showEmptyState('Message not sent', detail);
+      }
+    }
+
+    function createTerminal(item) {
+      const node = typeof item === 'string' ? { id: item } : (item || {});
+      const nodeId = node.id != null ? String(node.id) : null;
+      if (!nodeId) return;
+
+      const terminal = document.createElement('div');
+      terminal.className = 'terminal';
+      terminal.dataset.nodeId = nodeId;
+      terminal.innerHTML = `
+        <div class="terminal-title">
+          <strong>${getNodeLabel(nodeId)}</strong>
+          <span>${nodeId}</span>
+        </div>
+        <div class="terminal-body"></div>
+      `;
+
+      terminalsEl.appendChild(terminal);
+      const body = terminal.querySelector('.terminal-body');
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+
+      function connectLogWs() {
+        const socket = new WebSocket(`${protocol}://${location.host}/ws/node/${encodeURIComponent(nodeId)}/logs?tail=0`);
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.event === 'log') {
+              const line = document.createElement('div');
+              line.className = 'log-line';
+              line.textContent = data.line;
+              body.appendChild(line);
+              body.scrollTop = body.scrollHeight;
+            }
+          } catch (_) {}
+        };
+        socket.onclose = () => setTimeout(connectLogWs, 1000);
+      }
+
+      connectLogWs();
+    }
+
+    function sameNodeSet(nodes) {
+      const incoming = nodes.map((node) => String(node.id)).sort();
+      const existing = [...knownNodeIds].sort();
+      return incoming.length === existing.length && incoming.every((id, index) => id === existing[index]);
+    }
+
+    function renderCluster(nodes) {
+      renderNodeCards(nodes);
+      terminalsEl.innerHTML = '';
+      nodes.forEach((node) => createTerminal(node));
+    }
+
+    async function refreshNodeStatuses() {
+      try {
+        const resp = await fetch('/cluster/nodes');
+        if (!resp.ok) throw new Error('status fetch failed');
+        const data = await resp.json();
+        if (!Array.isArray(data)) return;
+
+        if (!sameNodeSet(data)) {
+          renderCluster(data);
+        }
+
+        const seen = new Set();
+        data.forEach((node) => {
+          if (!node || typeof node !== 'object') return;
+          const nodeId = node.id != null ? String(node.id) : null;
+          if (!nodeId) return;
+          seen.add(nodeId);
+          setNodeStatus(nodeId, node.running);
+        });
+
+        knownNodeIds.forEach((nodeId) => {
+          if (!seen.has(nodeId)) setNodeStatus(nodeId, null);
+        });
+      } catch (_) {
+        // keep current state on transient failures
+      }
+    }
+
+    async function setupClusterUI() {
+      try {
+        const resp = await fetch('/cluster/nodes');
+        const nodes = await resp.json();
+        if (!Array.isArray(nodes) || !nodes.length) throw new Error('No nodes');
+        renderCluster(nodes);
+      } catch (_) {
+        renderCluster(['n1', 'n2', 'n3']);
+      }
+      await refreshNodeStatuses();
+    }
+
+    function observeLeaderFromLogs() {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType !== 1) return;
+            const text = node.textContent || '';
+            const terminal = node.parentElement ? node.parentElement.parentElement : null;
+            const sourceNodeId = terminal && terminal.dataset ? terminal.dataset.nodeId : null;
+
+            const leaderMatch = text.match(/STATE -> LEADER \(term (\d+)\)/);
+            if (leaderMatch && sourceNodeId) {
+              leaderText.textContent = `${getNodeLabel(sourceNodeId)} (term ${leaderMatch[1]})`;
+              return;
+            }
+
+            const handoffMatch = text.match(/LEADER -> ([^\s]+)/);
+            if (handoffMatch) {
+              leaderText.textContent = getNodeLabel(handoffMatch[1]);
+            }
+          });
+        });
+      });
+
+      observer.observe(terminalsEl, { childList: true, subtree: true });
+    }
+
+    if (startClusterBtn) {
+      startClusterBtn.addEventListener('click', () => {
+        runClusterAction(startClusterBtn, '/cluster/start', (data = {}) => {
+          const parts = [];
+          if (Array.isArray(data.started) && data.started.length) {
+            parts.push(`Started: ${data.started.map(getNodeLabel).join(', ')}`);
+          }
+          if (Array.isArray(data.already_running) && data.already_running.length) {
+            parts.push(`Already online: ${data.already_running.map(getNodeLabel).join(', ')}`);
+          }
+          if (Array.isArray(data.errors) && data.errors.length) {
+            const failed = data.errors.map((entry) => entry && entry.node).filter(Boolean);
+            if (failed.length) parts.push(`Failed: ${failed.map(getNodeLabel).join(', ')}`);
+          }
+          return parts.join(' | ') || 'RapidLink mesh already online';
+        });
+      });
+    }
+
+    nodeActionsEl.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action][data-node]');
+      if (!button) return;
+
+      const nodeId = button.dataset.node;
+      const action = button.dataset.action;
+      if (!nodeId || !action) return;
+
+      if (action === 'kill') {
+        runClusterAction(button, `/cluster/node/${encodeURIComponent(nodeId)}/kill`, (data = {}) => `Stopped ${getNodeLabel(data.node || nodeId)}`);
+        return;
+      }
+
+      if (action === 'restart') {
+        runClusterAction(button, `/cluster/node/${encodeURIComponent(nodeId)}/restart`, (data = {}) => {
+          const target = data.node || nodeId;
+          const verb = data.action === 'started' ? 'Started' : 'Recycled';
+          return `${verb} ${getNodeLabel(target)}`;
+        });
+      }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keyup', (event) => {
+      if (event.key === 'Enter') sendMessage();
+    });
+
+    function syncConversation() {
+      const convo = refreshConversationState();
+      if (!convo) {
+        disconnectConversation();
+        showEmptyState('Set two participants', 'Enter exactly two people to turn this into a private one-to-one RapidLink conversation.');
+        return;
+      }
+      loadHistory(convo);
+      connectWebSocket(convo);
+    }
+
+    participantAInput.addEventListener('change', syncConversation);
+    participantBInput.addEventListener('change', syncConversation);
+    participantAInput.addEventListener('blur', refreshConversationState);
+    participantBInput.addEventListener('blur', refreshConversationState);
+    identityABtn.addEventListener('click', () => {
+      setActiveIdentity('a');
+      syncConversation();
+    });
+    identityBBtn.addEventListener('click', () => {
+      setActiveIdentity('b');
+      syncConversation();
+    });
+
+    showEmptyState('Set two participants', 'Enter exactly two people to turn this into a private one-to-one RapidLink conversation.');
+    setupClusterUI();
+    observeLeaderFromLogs();
+    refreshNodeStatuses();
+    refreshConversationState();
+    const statusInterval = setInterval(refreshNodeStatuses, 5000);
+    window.addEventListener('beforeunload', () => clearInterval(statusInterval));
+  </script>
 </body>
 </html>
