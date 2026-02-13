@@ -1,4 +1,4 @@
-# Core dependencies for Wiber Distributed Messaging System
+# Core dependencies for RapidLink Distributed Messaging System
 # Asyncio-based networking and distributed systems
 
 # Configuration and data handling
@@ -19,3 +19,8 @@ flake8>=6.0.0
 
 # Development and debugging
 ipython>=8.0.0
+
+# Web API runtime
+fastapi>=0.110.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0.0
