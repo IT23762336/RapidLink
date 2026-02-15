@@ -61,5 +61,3 @@ nodes:
         assert False, "Expected ValueError for missing port"
     except ValueError as e:
         assert "required field" in str(e)
-
-

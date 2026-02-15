@@ -2,7 +2,7 @@
 
 Loads and validates a YAML cluster configuration describing nodes in the
 distributed messaging system. The configuration schema is intentionally
-minimal for Task 0.2 and focuses on nodes with required fields:
+minimal and focuses on nodes with required fields:
 id (str), host (str), port (int).
 """
 
@@ -53,14 +53,7 @@ def _validate_node_dict(node: dict) -> NodeConfig:
 
 
 def load_cluster_config(path: str) -> ClusterConfig:
-    """Load and validate cluster configuration from a YAML file.
-
-    Args:
-        path: Path to YAML file containing cluster configuration.
-
-    Returns:
-        ClusterConfig: Parsed and validated configuration object.
-    """
+    """Load and validate cluster configuration from a YAML file."""
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
@@ -81,4 +74,3 @@ def load_cluster_config(path: str) -> ClusterConfig:
         nodes.append(node_cfg)
 
     return ClusterConfig(nodes=nodes)
-

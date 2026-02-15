@@ -70,4 +70,3 @@ async def test_rpc_connection_error():
     # Should return error response, not crash
     assert response["method"] == "error"
     assert "error" in response
-
