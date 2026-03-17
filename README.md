@@ -1,124 +1,193 @@
-# RapidLink - Distributed Messaging System
+# RapidLink
 
-RapidLink is a fully functional, multi-node, fault‑tolerant messaging system with a FastAPI gateway and a simple web UI. It runs locally without Kafka or Docker and includes cluster lifecycle controls (start/kill/restart), message history, and real‑time streaming over WebSockets.
+RapidLink is a distributed messaging system built in Python for local multi-node execution. It combines Raft-based leader election and replication, durable message logs, direct messaging APIs, time synchronization utilities, and a browser-based control console.
 
-## Goals (from Scenario 3)
-- Fault tolerance: failure detection, replication, failover, recovery.
-- Replication & consistency: leader-based or quorum, dedup, fast reads.
-- Time sync: physical clock sync, Lamport clocks, bounded reordering.
-- Consensus: leader election and log replication (e.g., Raft).
-- Integration: coherent, testable system across modules.
+The project is designed to run without Kafka, Docker, or any external broker. A FastAPI gateway starts and manages the cluster, streams node terminal output to the browser, and exposes REST and WebSocket flows for direct messaging and live updates.
 
-## Features
-- Multi-node cluster with start/kill/restart controls
-- FastAPI gateway with REST + WebSocket endpoints
-- Simple web UI to manage nodes and view logs live
-- Message publish, subscribe, and history retrieval
-- Runs locally; no Kafka or Docker required
+## Highlights
 
-## Quick Start
+- Multi-node cluster with start, kill, and restart controls
+- Raft-based leader election, heartbeats, and log replication
+- Durable commit logs with deduplication support
+- Direct messaging conversations with history retrieval
+- FastAPI gateway with REST endpoints and WebSocket streaming
+- Browser UI for cluster control, message history, and live terminals
+- Physical time sync, Lamport clocks, and message ordering helpers
+- Unit and integration tests for cluster, replication, API, and time modules
 
-1. Create a virtual environment (optional but recommended)
+## Project Structure
 
-   ```bash
-   python3 -m venv .venv
-   ```
+- `src/cluster/` - node runtime, RPC, Raft, heartbeats, and failure detection
+- `src/replication/` - persistent commit log, dedup cache, and replication helpers
+- `src/api/` - wire protocol handling and direct message topic helpers
+- `src/time/` - time synchronization, Lamport clocks, and ordering utilities
+- `scripts/dm_gateway.py` - FastAPI gateway and browser UI entry point
+- `scripts/run_node.py` - run one node by id
+- `scripts/run_cluster.py` - start the full cluster locally
+- `scripts/failover_demo.py` - demonstrate leader failover and recovery
+- `public/` - web UI assets and screenshots
+- `tests/` - unit and integration coverage
 
-2. Activate it
+## Default Cluster Layout
 
-   ```bash
-   source .venv/bin/activate
-   ```
+The default cluster is defined in `config/cluster.yaml`:
 
-   Windows PowerShell:
+- `n1` -> `127.0.0.1:9101`
+- `n2` -> `127.0.0.1:9102`
+- `n3` -> `127.0.0.1:9103`
 
-   ```powershell
-   .venv\Scripts\Activate.ps1
-   ```
+Each node also opens:
 
-3. Install dependencies
+- an RPC port on `node_port + 1000`
+- a time sync port on `node_port + 200`
 
-   ```bash
-   pip install -r docs/requirements.txt
-   ```
+## Screenshots
 
-4. Launch the FastAPI gateway + web UI
+### Gateway UI
 
-   ```bash
-   python3 scripts/dm_gateway.py
-   ```
+![RapidLink gateway UI](public/ui-screenshot.png)
 
-5. Open the UI in your browser (default port 8081)
+### Live Node Terminals
 
-   ```text
-   http://localhost:8081/
-   ```
+![RapidLink live terminals](public/terminals-screenshot.png)
 
-   For windows
-   ```text
-   http://localhost:8081/
-   ```
+## Setup
+
+1. Create a virtual environment.
+
+```bash
+python -m venv .venv
+```
+
+2. Activate it.
+
+```bash
+source .venv/bin/activate
+```
+
+PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+3. Install dependencies.
+
+```bash
+pip install -r docs/requirements.txt
+```
+
+## Run The Project
+
+### Option 1: Start the gateway and web UI
+
+```bash
+python scripts/dm_gateway.py
+```
+
+Then open:
+
+```text
+http://localhost:8081/
+```
 
 From the UI you can:
-- Click **Start the cluster** to spawn all nodes defined in `config/cluster.yaml`.
-- Use the per-node **Kill** / **Restart** buttons to manage individual nodes.
-- Watch each node’s console output live in the three terminals.
 
-Behind the scenes the gateway shells out to `scripts/run_node.py` for each node and tracks their subprocesses so the UI always knows which nodes are running.
+- start the configured cluster
+- kill or restart individual nodes
+- watch each node's terminal output live
+- send direct messages and inspect history
 
-## UI Screenshot
-
-  ![Gateway UI](public/ui-screenshot.png)
-
-## Command-Line Recipes
-
-### Run a Single Node (detached from the gateway)
+### Option 2: Run a single node
 
 ```bash
-# Replace n1 with the node id from config/cluster.yaml
-python3 scripts/run_node.py --id n1
-
-# Optional flags
-#   --config path/to/cluster.yaml   (defaults to config/cluster.yaml)
-#   --data-root /custom/data/dir    (defaults to ./.data)
+python scripts/run_node.py --id n1
 ```
 
-Each node writes its console output to `.data/<node_id>/logs/console.log`, which is the
-same file the gateway terminals stream in real time.
+Optional arguments:
 
-### Run the Cluster (all nodes)
+- `--config` to use a different cluster config file
+- `--data-root` to choose a different storage directory
 
-Start the whole cluster with one command:
+### Option 3: Run the local cluster script
 
 ```bash
-python3 scripts/run_cluster.py
+python scripts/run_cluster.py
 ```
 
-Then, view each node's console output in separate terminals:
+This starts all configured nodes, checks inter-node communication, and reports leader election status.
+
+### Option 4: Run the failover demo
 
 ```bash
-# Terminal A
-tail -f ./.data/n1/logs/console.log
-
-# Terminal B
-tail -f ./.data/n2/logs/console.log
-
-# Terminal C
-tail -f ./.data/n3/logs/console.log
-
+python scripts/failover_demo.py
 ```
-### Terminals in action
 
-  ![Gateway UI](public/terminals-screenshot.png)
+This script starts a small cluster, publishes before and after failover, cancels the current leader, waits for a new leader, then restarts the old node and verifies history recovery.
 
+## Data And Logs
 
+By default, runtime data is written under `.data/`.
 
-Coordinate interfaces via:
-- Append entries API (leader -> followers)
-- Commit index propagation
-- Client `PUB/SUB/HISTORY` semantics over committed entries
+Typical node artifacts include:
 
-## Notes
-- Docker and Kafka assets removed.
-- Keep `scenario3.docx` for requirements and evaluation.
-- The gateway listens on `localhost:8081` by default; override with `GATEWAY_PORT`.
+- `.data/<node_id>/logs/console.log`
+- `.data/<node_id>/logs/node.log`
+- `.data/<node_id>/logs/metrics.log`
+- `.data/<node_id>/raft/`
+
+The gateway reads the console logs to stream the browser terminals in real time.
+
+## Messaging Flow
+
+RapidLink supports leader-based publish and history retrieval over the node wire protocol and through the FastAPI gateway.
+
+Main operations include:
+
+- `PUB` for publishing a message
+- `SUB` for subscribing to a topic
+- `HISTORY` for reading committed message history
+- direct-message conversation ids generated from two participant names
+
+The gateway converts browser actions into broker commands and returns structured responses for message history and live updates.
+
+## Time Synchronization
+
+The project also includes time coordination features for distributed message ordering:
+
+- SNTP-style offset measurement
+- per-node time sync server and client
+- Lamport clock support
+- vector-clock-aware helpers
+- bounded message reordering utilities
+
+Demo code for this lives in `src/demos/time_sync_demo.py`.
+
+## Testing
+
+Run the test suite with:
+
+```bash
+pytest tests -q
+```
+
+The repository includes tests for:
+
+- config loading
+- API and gateway helpers
+- RPC communication
+- Raft election and replication
+- commit log persistence
+- time synchronization and logical clocks
+- integration behavior across nodes
+
+## Environment Notes
+
+Optional environment variables include:
+
+- `GATEWAY_PORT` to change the web UI and API port
+- `BROKER_HOST` and `BROKER_PORT` to point the gateway at a primary node
+- `BROKER_NODES` to provide a fallback list of node addresses
+- `NODE_DATA_ROOT` to change where node runtime data is stored
+
+You can also place a local `.env` file in the project root. The gateway loads simple `KEY=VALUE` pairs on startup.
